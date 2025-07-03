@@ -1,0 +1,1564 @@
+CÓDIGO DO WORKSHEET
+
+Private Sub Worksheet_Change(ByVal Target As Range)
+    On Error GoTo ErrorHandler
+    
+    Dim ws As Worksheet
+    Dim monitoredRanges As Range
+    Dim celula As Range
+    Dim DataHojeRange As Range
+    Dim convenio As String
+    
+    Set ws = ActiveSheet
+    
+    Application.EnableEvents = False
+    
+    Set monitoredRanges = Union(ws.Range("A1"), ws.Range("B48:B" & ws.Rows.Count), ws.Range("D:D"), ws.Range("G:G"), ws.Range("I:I"), ws.Range("NPREGAO"), ws.Range("NPROCESSO"), ws.Range("DATAABERTURA"), ws.Range("ValidadeProposta"), ws.Range("PrazoPagamento"), ws.Range("VigenciaAta"), ws.Range("PrazoEntrega"), ws.Range("ValidadeMed"), ws.Range("NOMEORGAO"), ws.Range("ESTADOUF"))
+    
+    On Error Resume Next
+    Set DataHojeRange = ws.Names("DataHoje").RefersToRange
+    On Error GoTo 0
+    
+    If Not Intersect(Target, monitoredRanges) Is Nothing Then
+        If Not Intersect(Target, ws.Range("B48:B" & ws.Rows.Count)) Is Nothing Then
+            For Each celula In Target
+                If Not Intersect(celula, ws.Range("B48:B" & ws.Rows.Count)) Is Nothing Then
+                    ' PRIMEIRA EXECUÇÃO: Autocompletar básico
+                    Call AutocompletarColunaB(celula)
+                    
+                    ' DOUBLECHECK MELHORADO: Força busca se detectar REGISTRO ANVISA
+                    If Len(Trim(celula.Value)) > 0 Then
+                        Dim temGatilho As Boolean
+                        temGatilho = False
+                        
+                        ' Verifica se tem REGISTRO ANVISA
+                        If InStr(1, UCase(celula.Value), "REGISTRO ANVISA:") > 0 Then
+                            temGatilho = True
+                        End If
+                        
+                        ' Se tem gatilho, força busca
+                        If temGatilho Then
+                            Call AutocompletarColunaB(celula)
+                            Application.Calculate
+                            DoEvents
+                        End If
+                        
+                        ' Formatar cor do texto para as variações especificadas
+                        Dim startPos As Long
+                        startPos = InStr(1, UCase(celula.Value), "(CONFAZ 87/02: SIM | CAP: SIM)")
+                        If startPos > 0 Then
+                            celula.Characters(startPos, Len("(CONFAZ 87/02: SIM | CAP: SIM)")).Font.Color = RGB(226, 107, 10)
+                        End If
+                        startPos = InStr(1, UCase(celula.Value), "(CONFAZ 87/02: SIM)")
+                        If startPos > 0 Then
+                            celula.Characters(startPos, Len("(CONFAZ 87/02: SIM)")).Font.Color = RGB(226, 107, 10)
+                        End If
+                        startPos = InStr(1, UCase(celula.Value), "(CONV. 162/94: SIM | CAP: SIM)")
+                        If startPos > 0 Then
+                            celula.Characters(startPos, Len("(CONV. 162/94: SIM | CAP: SIM)")).Font.Color = RGB(226, 107, 10)
+                        End If
+                        startPos = InStr(1, UCase(celula.Value), "(CONV. 162/94: SIM)")
+                        If startPos > 0 Then
+                            celula.Characters(startPos, Len("(CONV. 162/94: SIM)")).Font.Color = RGB(226, 107, 10)
+                        End If
+                        ' Adicionando (CAP: SIM) pra consistência, se aplicável
+                        startPos = InStr(1, UCase(celula.Value), "(CAP: SIM)")
+                        If startPos > 0 Then
+                            celula.Characters(startPos, Len("(CAP: SIM)")).Font.Color = RGB(226, 107, 10)
+                        End If
+                    End If
+                End If
+            Next celula
+        End If
+        If Not Intersect(Target, Union(ws.Range("D:D"), ws.Range("G:G"), ws.Range("I:I"))) Is Nothing Then
+            Application.Calculate
+            DoEvents
+            Call RecalcularBloco
+        End If
+        If Not Intersect(Target, ws.Range("G:G")) Is Nothing Then
+            For Each celula In Target
+                If Not Intersect(celula, ws.Range("G48:G" & ws.Rows.Count)) Is Nothing Then
+                    convenio = IdentificarConvenio(ws.Cells(celula.Row, "B").Value)
+                    Dim targetI As Range
+                    Dim valorOriginalI As Variant
+                    Dim taxaICMS As Double
+                    
+                    If convenio = "CONV_162_94" And IsNumeric(celula.Value) Then
+                        ' Guarda referência da célula I
+                        Set targetI = ws.Cells(celula.Row, "I")
+                        
+                        ' Movimentação de G para I
+                        targetI.Value = celula.Value
+                        If IsNumeric(ws.Cells(celula.Row, "H").Value) Then
+                            ws.Cells(celula.Row, "J").Value = ws.Cells(celula.Row, "H").Value
+                        End If
+                        celula.Value = "" ' Zera G
+                        ws.Cells(celula.Row, "H").Value = "" ' Zera H
+                        
+                        ' Recalcula J imediatamente
+                        If IsNumeric(ws.Cells(celula.Row, "D").Value) And IsNumeric(targetI.Value) Then
+                            ws.Cells(celula.Row, "J").Value = CDbl(ws.Cells(celula.Row, "D").Value) * CDbl(targetI.Value)
+                        End If
+                        
+                        ' SOLUÇÃO ROBUSTA: Simula evento Change na coluna I
+                        Application.EnableEvents = True
+                        valorOriginalI = targetI.Value
+                        targetI.Value = valorOriginalI ' Força disparo do evento Change
+                        Application.EnableEvents = False
+                        
+                        ' Força recalculação da soma total
+                        Application.Calculate
+                        DoEvents
+                        Call CalcularSomaTotal
+                    ElseIf convenio = "CONFAZ_87_02" And IsNumeric(celula.Value) Then
+                        ' Assumindo taxa ICMS de 12% (ajuste se tiver valor específico)
+                        taxaICMS = 0.12 ' Exemplo, substitua por Range("X1").Value se tiver taxa em outra célula
+                        
+                        ' Guarda referência da célula I
+                        Set targetI = ws.Cells(celula.Row, "I")
+                        
+                        ' Movimentação de G para I
+                        targetI.Value = celula.Value
+                        celula.Value = "" ' Zera G
+                        ws.Cells(celula.Row, "H").Value = "" ' Zera H
+                        
+                        ' Calcula ICMS em G (baseado em D * I * taxaICMS)
+                        If IsNumeric(ws.Cells(celula.Row, "D").Value) And IsNumeric(targetI.Value) Then
+                            celula.Value = CDbl(ws.Cells(celula.Row, "D").Value) * CDbl(targetI.Value) * taxaICMS
+                        End If
+                        
+                        ' SOLUÇÃO ROBUSTA: Simula evento Change na coluna I
+                        Application.EnableEvents = True
+                        valorOriginalI = targetI.Value
+                        targetI.Value = valorOriginalI ' Força disparo do evento Change
+                        Application.EnableEvents = False
+                        
+                        ' Força recalculação da soma total
+                        Application.Calculate
+                        DoEvents
+                        Call CalcularSomaTotal
+                    End If
+                End If
+            Next celula
+        End If
+        If Not Intersect(Target, ws.Range("ESTADOUF")) Is Nothing Then
+            Application.Calculate
+            DoEvents
+            Call RecalcularBloco
+            Application.Calculate
+        End If
+        If Not Intersect(Target, ws.Range("NPREGAO")) Is Nothing Then Call FormatPrefixo(Target, "Pregão Eletrônico N° ")
+        If Not Intersect(Target, ws.Range("NPROCESSO")) Is Nothing Then
+            ' Apenas adiciona o prefixo "Processo Nº " sem formatação adicional
+            If Left(Target.Value, 12) <> "Processo Nº " Then
+                Target.Value = "Processo Nº " & Target.Value
+            End If
+        End If
+        If Not Intersect(Target, ws.Range("DATAABERTURA")) Is Nothing Then Call FormatDataA42(Target)
+        If Not Intersect(Target, ws.Range("ValidadeProposta")) Is Nothing Then Call FormatValidadeProposta(Target)
+        If Not Intersect(Target, ws.Range("PrazoPagamento")) Is Nothing Then Call FormatPrazoPagamento(Target)
+        If Not Intersect(Target, ws.Range("VigenciaAta")) Is Nothing Then Call FormatVigenciaAta(Target)
+        If Not Intersect(Target, ws.Range("PrazoEntrega")) Is Nothing Then Call FormatPrazoEntrega(Target)
+        If Not Intersect(Target, ws.Range("ValidadeMed")) Is Nothing Then Call FormatValidadeMed(Target)
+        If Not Intersect(Target, ws.Range("NOMEORGAO")) Is Nothing Then Call FormatNomeOrgao(Target)
+        If Not Intersect(Target, ws.Range("ESTADOUF")) Is Nothing Then Call FormatEstadoUF(Target)
+    End If
+    
+    If Not DataHojeRange Is Nothing Then
+        If Not Intersect(Target, DataHojeRange) Is Nothing Then
+            Call FormatDataHoje(Target, ws)
+        End If
+    End If
+    
+    DoEvents
+    Call CalcularSomaTotal
+    Call VerificarCamposObrigatorios
+    
+    Application.EnableEvents = True
+    Exit Sub
+
+ErrorHandler:
+    Application.EnableEvents = True
+    MsgBox "Erro no Worksheet_Change: " & Err.Description, vbCritical
+End Sub
+
+
+
+
+CÓDIGO DO MÓDULO:
+
+Public Sub RecalcularBloco()
+    Dim linha As Long
+    Dim linhaLimite As Long
+    Dim valorD As Double, valorI As Double, valorG As Double
+    Dim ws As Worksheet
+    Dim convenio As String
+    Dim uf As String, marca As String, fator As Double
+    
+    On Error Resume Next
+    Set ws = ActiveSheet
+    linhaLimite = ws.Range("LIMITELINHA").Row
+    If Err.Number <> 0 Then linhaLimite = ws.Cells(ws.Rows.Count, "H").End(xlUp).Row
+    On Error GoTo 0
+    
+    uf = UCase(Trim(ws.Range("ESTADOUF").Value))
+    If uf = "" Then uf = "SP" ' Padrão se UF não preenchida
+    
+    For linha = 48 To linhaLimite - 1
+        convenio = IdentificarConvenio(ws.Cells(linha, "B").Value)
+        marca = UCase(Trim(ws.Cells(linha, "F").Value))
+        
+        ' Calcula H (Total com ICMS) se G e D forem numéricos
+        If IsNumeric(ws.Cells(linha, "D").Value) And IsNumeric(ws.Cells(linha, "G").Value) Then
+            valorD = CDbl(ws.Cells(linha, "D").Value)
+            valorG = CDbl(ws.Cells(linha, "G").Value)
+            ws.Cells(linha, "H").Value = valorD * valorG
+        Else
+            ws.Cells(linha, "H").Value = ""
+        End If
+        
+        ' Calcula J (Total sem ICMS) e aplica ICMS se CONFAZ 87/02
+        If IsNumeric(ws.Cells(linha, "D").Value) And IsNumeric(ws.Cells(linha, "I").Value) Then
+            valorD = CDbl(ws.Cells(linha, "D").Value)
+            valorI = CDbl(ws.Cells(linha, "I").Value)
+            ws.Cells(linha, "J").Value = valorD * valorI
+            
+            If convenio = "CONFAZ_87_02" Then
+                fator = CalcularFatorICMS(uf, marca)
+                If valorI > 0 Then
+                    ws.Cells(linha, "G").Value = Round(valorI / fator, 4) ' Calcula G a partir de I
+                    ws.Cells(linha, "H").Value = ws.Cells(linha, "G").Value * valorD ' Recalcula H
+                End If
+            End If
+        Else
+            ws.Cells(linha, "J").Value = ""
+        End If
+        
+        Call LogAlteracao("D" & linha & " e G/I" & linha, ws.Cells(linha, "H").Value & " / " & ws.Cells(linha, "J").Value, "RecalcularBloco")
+    Next linha
+End Sub
+
+Public Sub FormatarTextoComPartes(ByVal celula As Range, ByVal textoCompleto As String, ParamArray partesNegrito())
+    Dim i As Integer
+    Dim posicao As Long
+    Dim comprimento As Long
+    
+    With celula
+        .Value = textoCompleto
+        .Font.Bold = False ' Reseta formatação
+        For i = LBound(partesNegrito) To UBound(partesNegrito)
+            posicao = InStr(1, textoCompleto, partesNegrito(i), vbTextCompare)
+            If posicao > 0 Then
+                comprimento = Len(partesNegrito(i))
+                With .Characters(Start:=posicao, Length:=comprimento).Font
+                    .Bold = True
+                End With
+            End If
+        Next i
+    End With
+End Sub
+
+Public Sub AutocompletarColunaB(ByVal Target As Range)
+    Dim celula As Range, lista As Range
+    Dim valorDigitado As String, palavras() As String
+    Dim i As Integer, todasPalavrasEncontradas As Boolean
+    Dim textoCompleto As String, posMarca As Long
+    Dim fabricante As String, marca As String, unidade As String
+    
+    valorDigitado = Trim(Target.Value)
+    If valorDigitado = "" Then Exit Sub
+    
+    palavras = Split(valorDigitado, " ")
+    With ThisWorkbook.Sheets("Apresentacoes")
+        Set lista = .Range("B2:B" & .Cells(.Rows.Count, "B").End(xlUp).Row)
+    End With
+    
+    For Each celula In lista
+        todasPalavrasEncontradas = True
+        For i = LBound(palavras) To UBound(palavras)
+            If InStr(1, " " & RemoverAcentos(UCase(celula.Value)) & " ", " " & UCase(palavras(i)) & " ") = 0 Then
+                todasPalavrasEncontradas = False
+                Exit For
+            End If
+        Next i
+        
+        If todasPalavrasEncontradas Then
+            textoCompleto = celula.Value
+            Target.Value = textoCompleto
+            Call LogAlteracao("B" & Target.Row, textoCompleto, "AutocompletarColunaB")
+            
+            ' Busca o fabricante na coluna A da mesma linha
+            fabricante = Trim(ThisWorkbook.Sheets("Apresentacoes").Cells(celula.Row, "A").Value)
+            If Len(fabricante) > 0 Then
+                ActiveSheet.Cells(Target.Row, "E").Value = fabricante
+            End If
+            
+            ' Extrai a marca a partir de "MARCA:" na descrição
+            posMarca = InStr(1, textoCompleto, "MARCA: ")
+            If posMarca > 0 Then
+                posMarca = posMarca + Len("MARCA: ")
+                Dim posRegistro As Long
+                posRegistro = InStr(posMarca, textoCompleto, " / ")
+                If posRegistro > 0 Then
+                    marca = Mid(textoCompleto, posMarca, posRegistro - posMarca)
+                Else
+                    marca = Mid(textoCompleto, posMarca)
+                End If
+                ActiveSheet.Cells(Target.Row, "F").Value = Trim(marca)
+            End If
+            
+            unidade = ThisWorkbook.Sheets("Apresentacoes").Cells(celula.Row, "C").Value
+            If Len(Trim(unidade)) > 0 Then
+                ActiveSheet.Cells(Target.Row, "C").Value = Trim(unidade)
+                Call LogAlteracao("C" & Target.Row, unidade, "AutocompletarColunaB")
+            End If
+            
+            Exit For
+        End If
+    Next celula
+End Sub
+
+Public Sub CalcularSomaTotal()
+    On Error GoTo TratarErro
+    Dim soma As Double
+    Dim ultimaLinha As Long
+    Dim linhaLimite As Long
+    Dim rng As Range
+    Dim valorExtenso As String
+    Dim ws As Worksheet
+    Dim convenio As String
+    
+    On Error Resume Next
+    Set ws = ActiveSheet
+    linhaLimite = ws.Range("LIMITELINHA").Row
+    If Err.Number <> 0 Then
+        linhaLimite = ws.Cells(ws.Rows.Count, "H").End(xlUp).Row
+    End If
+    On Error GoTo 0
+    
+    ultimaLinha = 48
+    Do While Not IsEmpty(ws.Cells(ultimaLinha, "H").Value) And ultimaLinha < linhaLimite
+        ultimaLinha = ultimaLinha + 1
+    Loop
+    ultimaLinha = ultimaLinha - 1
+    
+    soma = 0
+    If ultimaLinha >= 48 Then
+        For linha = 48 To ultimaLinha
+            convenio = IdentificarConvenio(ws.Cells(linha, "B").Value)
+            If convenio = "CONFAZ_87_02" Or convenio = "CONV_162_94" Then
+                If IsNumeric(ws.Cells(linha, "J").Value) Then
+                    soma = soma + CDbl(ws.Cells(linha, "J").Value)
+                End If
+            Else
+                If IsNumeric(ws.Cells(linha, "H").Value) Then
+                    soma = soma + CDbl(ws.Cells(linha, "H").Value)
+                End If
+            End If
+        Next linha
+        
+        valorExtenso = UCase(NumeroParaExtensoMonetario(soma))
+        
+        With ws.Range("ValorExtenso")
+            .Value = UCase("VALOR TOTAL DA PROPOSTA: ") & valorExtenso
+            .Font.Bold = False
+            With .Characters(Start:=1, Length:=Len("VALOR TOTAL DA PROPOSTA: ")).Font
+                .Bold = True
+            End With
+            With .Characters(Start:=Len("VALOR TOTAL DA PROPOSTA: ") + 1, Length:=Len(valorExtenso)).Font
+                .Bold = False
+            End With
+        End With
+        
+        ws.Range("SomaTotal").Value = soma
+    Else
+        With ws.Range("ValorExtenso")
+            .Value = UCase("VALOR TOTAL DA PROPOSTA: ZERO REAIS")
+            .Font.Bold = False
+            With .Characters(Start:=1, Length:=Len("VALOR TOTAL DA PROPOSTA: ")).Font
+                .Bold = True
+            End With
+            With .Characters(Start:=Len("VALOR TOTAL DA PROPOSTA: ") + 1, Length:=Len("ZERO REAIS")).Font
+                .Bold = False
+            End With
+        End With
+        ws.Range("SomaTotal").Value = 0
+    End If
+    Exit Sub
+TratarErro:
+    MsgBox "Erro ao calcular soma: " & Err.Description, vbExclamation
+End Sub
+
+Public Sub FormatPrefixo(ByVal Target As Range, ByVal prefixo As String)
+    On Error GoTo ErrorHandler
+    
+    Dim valorDigitado As String
+    Dim numeroPregao As String
+    Dim ano As String
+    Dim anoNumerico As Long
+    Dim partes() As String
+    
+    valorDigitado = Trim(Target.Value)
+    
+    With Target
+        If valorDigitado <> "" Then
+            ' Remove o prefixo se já estiver presente
+            If Left(valorDigitado, Len(prefixo)) = prefixo Then
+                valorDigitado = Mid(valorDigitado, Len(prefixo) + 1)
+            End If
+            
+            ' Formata o número do pregão
+            ' Entrada com barra (ex.: "123/2025")
+            If InStr(valorDigitado, "/") > 0 Then
+                partes = Split(valorDigitado, "/")
+                If UBound(partes) = 1 Then
+                    numeroPregao = Trim(partes(0))
+                    ano = Trim(partes(1))
+                    If IsNumeric(numeroPregao) And IsNumeric(ano) Then
+                        anoNumerico = CLng(ano)
+                        If anoNumerico >= 2024 And anoNumerico <= 2030 Then
+                            ' Completa com zeros à esquerda para 1-3 dígitos
+                            Select Case Len(numeroPregao)
+                                Case 1
+                                    numeroPregao = "000" & numeroPregao
+                                Case 2
+                                    numeroPregao = "00" & numeroPregao
+                                Case 3
+                                    numeroPregao = "0" & numeroPregao
+                            End Select
+                            valorDigitado = numeroPregao & "/" & ano
+                            GoTo AplicarFormatacao
+                        End If
+                    End If
+                End If
+            End If
+            
+            ' Entrada numérica longa (ex.: "1232025") ou curta (ex.: "123", "90040")
+            If IsNumeric(valorDigitado) And Len(valorDigitado) >= 1 Then
+                If Len(valorDigitado) >= 6 Then
+                    ' Entrada com ano (ex.: "1232025")
+                    ano = Right(valorDigitado, 4)
+                    If IsNumeric(ano) Then
+                        anoNumerico = CLng(ano)
+                        If anoNumerico >= 2024 And anoNumerico <= 2030 Then
+                            numeroPregao = Left(valorDigitado, Len(valorDigitado) - 4)
+                            Select Case Len(numeroPregao)
+                                Case 1
+                                    numeroPregao = "000" & numeroPregao
+                                Case 2
+                                    numeroPregao = "00" & numeroPregao
+                                Case 3
+                                    numeroPregao = "0" & numeroPregao
+                            End Select
+                            valorDigitado = numeroPregao & "/" & ano
+                            GoTo AplicarFormatacao
+                        End If
+                    End If
+                Else
+                    ' Entrada sem ano (ex.: "123", "90040")
+                    numeroPregao = valorDigitado
+                    If Len(numeroPregao) <= 5 Then
+                        ano = Format(Date, "yyyy") ' Assume ano atual
+                        ' Completa com zeros à esquerda para 1-3 dígitos
+                        Select Case Len(numeroPregao)
+                            Case 1
+                                numeroPregao = "000" & numeroPregao
+                            Case 2
+                                numeroPregao = "00" & numeroPregao
+                            Case 3
+                                numeroPregao = "0" & numeroPregao
+                        End Select
+                        valorDigitado = numeroPregao & "/" & ano
+                        GoTo AplicarFormatacao
+                    End If
+                End If
+            End If
+            
+            ' Entrada não compatível: aceitar como está
+AplicarFormatacao:
+            .NumberFormat = "@"
+            .Value = prefixo & valorDigitado
+            With .Characters(Start:=1, Length:=Len(prefixo)).Font
+                .Bold = True
+                .Color = vbBlack
+            End With
+            With .Characters(Start:=Len(prefixo) + 1, Length:=Len(valorDigitado)).Font
+                .Bold = False
+                .Color = vbBlack
+            End With
+        Else
+            ' Quando vazio, aplicar prefixo em vermelho
+            .NumberFormat = "@"
+            .Value = prefixo
+            .Characters(Start:=1, Length:=Len(prefixo)).Font.Bold = True
+            .Characters(Start:=1, Length:=Len(prefixo)).Font.Color = vbRed
+        End If
+    End With
+    
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Erro ao formatar prefixo: " & Err.Description, vbCritical
+End Sub
+
+Public Sub FormatDataA42(ByVal Target As Range)
+    Dim prefixo As String
+    prefixo = "Abertura: "
+    Dim hoje As Date
+    hoje = Date
+    
+    Dim valorDigitado As String
+    valorDigitado = UCase(Trim(Target.Value))
+    
+    Dim dataTexto As String
+    Select Case valorDigitado
+        Case "H"
+            dataTexto = Format(hoje, "dd/mm/yyyy")
+        Case "A"
+            dataTexto = Format(hoje + 1, "dd/mm/yyyy")
+        Case "O"
+            dataTexto = Format(hoje - 1, "dd/mm/yyyy")
+        Case Else
+            If Left(valorDigitado, Len(prefixo)) = UCase(prefixo) Then
+                valorDigitado = Mid(valorDigitado, Len(prefixo) + 1)
+            End If
+            With Target
+                .Value = prefixo & valorDigitado
+                If valorDigitado = "" Then .Value = prefixo
+                .Font.Bold = False ' Reseta formatação
+                With .Characters(Start:=1, Length:=Len(prefixo)).Font
+                    .Bold = True
+                End With
+                With .Characters(Start:=Len(prefixo) + 1, Length:=Len(valorDigitado)).Font
+                    .Bold = False
+                End With
+            End With
+            Exit Sub
+    End Select
+    
+    Call FormatarTextoComPartes(Target, prefixo & dataTexto, prefixo)
+End Sub
+
+Public Sub FormatValidadeProposta(ByVal Target As Range)
+    Dim prefixo As String
+    Dim sufixo As String
+    Dim valorDigitado As String
+    Dim numero As Long
+    Dim Extenso As String
+    
+    prefixo = "Validade da Proposta: "
+    sufixo = " dias, a contar da data de sua apresentação;"
+    valorDigitado = Trim(Target.Value)
+    
+    If valorDigitado = "" Then
+        Call FormatarTextoComPartes(Target, prefixo, prefixo)
+    ElseIf IsNumeric(valorDigitado) Then
+        numero = CLng(valorDigitado)
+        Extenso = NumeroParaExtenso(numero)
+        Call FormatarTextoComPartes(Target, prefixo & numero & " (" & Extenso & ")" & sufixo, prefixo)
+    Else
+        MsgBox "Digite apenas números para a validade da proposta."
+        Call FormatarTextoComPartes(Target, prefixo, prefixo)
+    End If
+End Sub
+
+Public Sub FormatPrazoPagamento(ByVal Target As Range)
+    Dim prefixo As String
+    Dim sufixo As String
+    Dim valorDigitado As String
+    Dim numero As Long
+    Dim Extenso As String
+    
+    prefixo = "Prazo de Pagamento: "
+    sufixo = " dias"
+    valorDigitado = Trim(Target.Value)
+    
+    If valorDigitado = "" Then
+        Call FormatarTextoComPartes(Target, prefixo & "Conforme edital.", prefixo)
+    ElseIf IsNumeric(valorDigitado) Then
+        numero = CLng(valorDigitado)
+        Extenso = NumeroParaExtenso(numero)
+        Call FormatarTextoComPartes(Target, prefixo & numero & " (" & Extenso & ")" & sufixo, prefixo)
+    Else
+        Call FormatarTextoComPartes(Target, prefixo & "Conforme edital.", prefixo)
+    End If
+End Sub
+
+Public Sub FormatVigenciaAta(ByVal Target As Range)
+    Dim prefixo As String
+    Dim sufixo As String
+    Dim valorDigitado As String
+    Dim numero As Long
+    Dim Extenso As String
+    
+    prefixo = "Vigência da Ata: "
+    sufixo = " meses"
+    valorDigitado = Trim(Target.Value)
+    
+    If valorDigitado = "" Then
+        numero = 12
+        Extenso = NumeroParaExtenso(numero)
+        Call FormatarTextoComPartes(Target, prefixo & numero & " (" & Extenso & ")" & sufixo, prefixo)
+    ElseIf IsNumeric(valorDigitado) Then
+        numero = CLng(valorDigitado)
+        Extenso = NumeroParaExtenso(numero)
+        Call FormatarTextoComPartes(Target, prefixo & numero & " (" & Extenso & ")" & sufixo, prefixo)
+    Else
+        numero = 12
+        Extenso = NumeroParaExtenso(numero)
+        Call FormatarTextoComPartes(Target, prefixo & numero & " (" & Extenso & ")" & sufixo, prefixo)
+    End If
+End Sub
+
+Public Sub FormatPrazoEntrega(ByVal Target As Range)
+    Dim prefixo As String
+    Dim sufixo As String
+    Dim valorDigitado As String
+    Dim numero As Long
+    Dim Extenso As String
+    Dim tipoDias As String
+    
+    prefixo = "Prazo de Entrega: "
+    sufixo = " do recebimento da Autorização de Fornecimento (AF) ou Nota de Empenho (NE)."
+    valorDigitado = Trim(LCase(Target.Value))
+    
+    If valorDigitado = "" Then
+        Call FormatarTextoComPartes(Target, prefixo & " dias corridos" & sufixo, prefixo, "corridos")
+    ElseIf InStr(valorDigitado, "uteis") > 0 Then
+        numero = CLng(Trim(Replace(valorDigitado, "uteis", "")))
+        Extenso = NumeroParaExtenso(numero)
+        tipoDias = " dias úteis"
+        Call FormatarTextoComPartes(Target, prefixo & numero & " (" & Extenso & ")" & tipoDias & sufixo, prefixo, "úteis")
+    ElseIf IsNumeric(valorDigitado) Then
+        numero = CLng(valorDigitado)
+        Extenso = NumeroParaExtenso(numero)
+        tipoDias = " dias corridos"
+        Call FormatarTextoComPartes(Target, prefixo & numero & " (" & Extenso & ")" & tipoDias & sufixo, prefixo, "corridos")
+    Else
+        Call FormatarTextoComPartes(Target, prefixo & " dias corridos" & sufixo, prefixo, "corridos")
+    End If
+End Sub
+
+Public Sub FormatValidadeMed(ByVal Target As Range)
+    On Error GoTo ErrorHandler
+    
+    Dim prefixo As String
+    Dim sufixo As String
+    Dim valorDigitado As String
+    Dim numero As Long
+    Dim Extenso As String
+    Dim denominador As Long
+    
+    prefixo = "Validade do Objeto: "
+    valorDigitado = Trim(Target.Text)
+    
+    If valorDigitado = "" Then
+        Call FormatarTextoComPartes(Target, prefixo, prefixo)
+        Exit Sub
+    End If
+    
+    If InStr(valorDigitado, "%") > 0 Then
+        Dim valorSemPorcento As String
+        valorSemPorcento = Replace(valorDigitado, "%", "")
+        If IsNumeric(valorSemPorcento) Then
+            numero = CLng(valorSemPorcento)
+            If numero >= 0 And numero <= 100 Then ' Valida que a porcentagem tá entre 0 e 100
+                Extenso = NumeroParaExtenso(numero) & " por cento"
+                sufixo = " de validade"
+                Call FormatarTextoComPartes(Target, prefixo & numero & "% (" & Extenso & ")" & sufixo, prefixo)
+            Else
+                MsgBox "A porcentagem deve estar entre 0 e 100.", vbExclamation
+                Call FormatarTextoComPartes(Target, prefixo, prefixo)
+            End If
+        Else
+            MsgBox "Porcentagem inválida. Digite um número seguido de % (ex.: 75%).", vbExclamation
+            Call FormatarTextoComPartes(Target, prefixo, prefixo)
+        End If
+    ElseIf InStr(valorDigitado, "/") > 0 Then
+        Dim partes() As String
+        partes = Split(valorDigitado, "/")
+        If UBound(partes) = 1 And IsNumeric(partes(0)) And IsNumeric(partes(1)) Then
+            numero = CLng(partes(0))
+            denominador = CLng(partes(1))
+            If denominador <= 0 Then
+                MsgBox "O denominador da fração não pode ser zero ou negativo.", vbExclamation
+                Call FormatarTextoComPartes(Target, prefixo, prefixo)
+                Exit Sub
+            End If
+            If numero < 0 Then
+                MsgBox "O numerador da fração não pode ser negativo.", vbExclamation
+                Call FormatarTextoComPartes(Target, prefixo, prefixo)
+                Exit Sub
+            End If
+            Select Case denominador
+                Case 2
+                    Extenso = NumeroParaExtenso(numero) & " meios"
+                Case 3
+                    Extenso = NumeroParaExtenso(numero) & " terços"
+                Case 4
+                    Extenso = NumeroParaExtenso(numero) & " quartos"
+                Case Else
+                    Extenso = NumeroParaExtenso(numero) & " partes de " & NumeroParaExtenso(denominador)
+            End Select
+            sufixo = " de validade"
+            Call FormatarTextoComPartes(Target, prefixo & valorDigitado & " (" & Extenso & ")" & sufixo, prefixo)
+        Else
+            MsgBox "Fração inválida. Use o formato X/Y (ex.: 1/2).", vbExclamation
+            Call FormatarTextoComPartes(Target, prefixo, prefixo)
+        End If
+    ElseIf IsNumeric(valorDigitado) Then
+        numero = CLng(valorDigitado)
+        If numero < 0 Then
+            MsgBox "O número de meses não pode ser negativo.", vbExclamation
+            Call FormatarTextoComPartes(Target, prefixo, prefixo)
+            Exit Sub
+        End If
+        Extenso = NumeroParaExtenso(numero)
+        sufixo = " meses de validade"
+        Call FormatarTextoComPartes(Target, prefixo & numero & " (" & Extenso & ")" & sufixo, prefixo)
+    Else
+        MsgBox "Entrada inválida. Digite um número (ex.: 24), uma porcentagem (ex.: 75%), ou uma fração (ex.: 1/2).", vbExclamation
+        Call FormatarTextoComPartes(Target, prefixo, prefixo)
+    End If
+    
+ExitSub:
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Erro ao formatar Validade do Objeto: " & Err.Description, vbCritical
+    Call FormatarTextoComPartes(Target, prefixo, prefixo)
+    Resume ExitSub
+End Sub
+
+Public Sub VerificarCamposObrigatorios()
+    Dim celulas As Variant
+    Dim i As Integer
+    Dim celula As Range
+    Dim prefixo As String
+    Dim textoPadraoPrazoEntrega As String
+    
+    celulas = Array("NPREGAO", "NPROCESSO", "DATAABERTURA", "ValidadeProposta", "PrazoEntrega", "ValidadeMed")
+    textoPadraoPrazoEntrega = "Prazo de Entrega: dias corridos do recebimento da Autorização de Fornecimento (AF) ou Nota de Empenho (NE)."
+    
+    For i = LBound(celulas) To UBound(celulas)
+        Set celula = ActiveSheet.Range(celulas(i))
+        Select Case celulas(i)
+            Case "NPREGAO"
+                prefixo = "Pregão Eletrônico N° "
+            Case "NPROCESSO"
+                prefixo = "Processo Nº "
+            Case "DATAABERTURA"
+                prefixo = "Abertura: "
+            Case "ValidadeProposta"
+                prefixo = "Validade da Proposta: "
+            Case "PrazoEntrega"
+                prefixo = textoPadraoPrazoEntrega
+            Case "ValidadeMed"
+                prefixo = "Validade do Objeto: "
+        End Select
+        
+        If celula.Value = prefixo Then
+            celula.Font.Color = vbRed
+        Else
+            celula.Font.Color = vbBlack
+        End If
+    Next i
+End Sub
+
+' FUNÇÃO PARA VALORES MONETÁRIOS (adiciona "reais" e "centavos")
+Public Function NumeroParaExtensoMonetario(ByVal valor As Double) As String
+    Dim Unidades As Variant, Dezenas As Variant, Centenas As Variant
+    Dim numero As String, Extenso As String
+    Dim ParteInteira As Double, ParteDecimal As Double
+    Dim Milhoes As Long, Milhares As Long, CentenasDeMilhar As Integer
+    
+    Unidades = Array("", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove")
+    Dezenas = Array("", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa")
+    Centenas = Array("", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos", "setecentos", "oitocentos", "novecentos")
+    
+    ParteInteira = Int(valor)
+    ParteDecimal = Round((valor - ParteInteira) * 100, 0)
+    If ParteDecimal > 99 Then ParteDecimal = 99
+    
+    ' PARTE INTEIRA (REAIS)
+    If ParteInteira = 0 Then
+        Extenso = "zero"
+    Else
+        If ParteInteira >= 1000000 Then
+            Milhoes = Int(ParteInteira / 1000000)
+            ParteInteira = ParteInteira Mod 1000000
+            If Milhoes = 1 Then
+                Extenso = "um milhão"
+            Else
+                Extenso = ProcessarNumeroSimples(Milhoes, Unidades, Dezenas, Centenas) & " milhões"
+            End If
+            If ParteInteira > 0 Then Extenso = Extenso & " e "
+        End If
+        
+        If ParteInteira >= 1000 Then
+            Milhares = Int(ParteInteira / 1000)
+            ParteInteira = ParteInteira Mod 1000
+            If Milhares = 1 Then
+                Extenso = Extenso & "mil"
+            Else
+                Extenso = Extenso & ProcessarNumeroSimples(Milhares, Unidades, Dezenas, Centenas) & " mil"
+            End If
+            If ParteInteira > 0 Then Extenso = Extenso & " e "
+        End If
+        
+        If ParteInteira > 0 Then
+            Extenso = Extenso & ProcessarNumeroSimples(ParteInteira, Unidades, Dezenas, Centenas)
+        End If
+    End If
+    
+    ' Adiciona "real" ou "reais"
+    If ParteInteira = 1 Then
+        Extenso = Extenso & " real"
+    Else
+        Extenso = Extenso & " reais"
+    End If
+    
+    ' PARTE DECIMAL (CENTAVOS)
+    If ParteDecimal > 0 Then
+        Dim ExtensoCentavos As String
+        ExtensoCentavos = ProcessarNumeroSimples(ParteDecimal, Unidades, Dezenas, Centenas)
+        
+        Extenso = Extenso & " e " & ExtensoCentavos
+        
+        If ParteDecimal = 1 Then
+            Extenso = Extenso & " centavo"
+        Else
+            Extenso = Extenso & " centavos"
+        End If
+    End If
+    
+    NumeroParaExtensoMonetario = Trim(Extenso)
+End Function
+
+' FUNÇÃO PARA NÚMEROS SIMPLES (não adiciona "reais")
+Public Function NumeroParaExtenso(ByVal valor As Double) As String
+    Dim Unidades As Variant, Dezenas As Variant, Centenas As Variant
+    Dim numero As String, Extenso As String
+    Dim ParteInteira As Double, ParteDecimal As Double
+    Dim Milhoes As Long, Milhares As Long, CentenasDeMilhar As Integer
+    
+    Unidades = Array("", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove")
+    Dezenas = Array("", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa")
+    Centenas = Array("", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos", "setecentos", "oitocentos", "novecentos")
+    
+    ParteInteira = Int(valor)
+    ParteDecimal = Round((valor - ParteInteira) * 100, 0)
+    If ParteDecimal > 99 Then ParteDecimal = 99
+    
+    ' PARTE INTEIRA
+    If ParteInteira = 0 Then
+        Extenso = "zero"
+    Else
+        If ParteInteira >= 1000000 Then
+            Milhoes = Int(ParteInteira / 1000000)
+            ParteInteira = ParteInteira Mod 1000000
+            If Milhoes = 1 Then
+                Extenso = "um milhão"
+            Else
+                Extenso = ProcessarNumeroSimples(Milhoes, Unidades, Dezenas, Centenas) & " milhões"
+            End If
+            If ParteInteira > 0 Then Extenso = Extenso & " e "
+        End If
+        
+        If ParteInteira >= 1000 Then
+            Milhares = Int(ParteInteira / 1000)
+            ParteInteira = ParteInteira Mod 1000
+            If Milhares = 1 Then
+                Extenso = Extenso & "mil"
+            Else
+                Extenso = Extenso & ProcessarNumeroSimples(Milhares, Unidades, Dezenas, Centenas) & " mil"
+            End If
+            If ParteInteira > 0 Then Extenso = Extenso & " e "
+        End If
+        
+        If ParteInteira > 0 Then
+            Extenso = Extenso & ProcessarNumeroSimples(ParteInteira, Unidades, Dezenas, Centenas)
+        End If
+    End If
+    
+    ' PARTE DECIMAL (se houver)
+    If ParteDecimal > 0 Then
+        Dim ExtensoCentavos As String
+        ExtensoCentavos = ProcessarNumeroSimples(ParteDecimal, Unidades, Dezenas, Centenas)
+        Extenso = Extenso & " vírgula " & ExtensoCentavos
+    End If
+    
+    NumeroParaExtenso = Trim(Extenso)
+End Function
+
+' Função auxiliar para processar números de 0 a 999
+Private Function ProcessarNumeroSimples(ByVal numero As Long, Unidades As Variant, Dezenas As Variant, Centenas As Variant) As String
+    Dim resultado As String
+    Dim centena As Integer, dezena As Integer, unidade As Integer
+    
+    If numero = 0 Then
+        ProcessarNumeroSimples = ""
+        Exit Function
+    End If
+    
+    ' Processa centenas
+    If numero >= 100 Then
+        centena = Int(numero / 100)
+        numero = numero Mod 100
+        
+        If centena = 1 And numero = 0 Then
+            resultado = "cem"  ' Caso especial: 100 = "cem"
+        Else
+            resultado = Centenas(centena)
+        End If
+        
+        If numero > 0 Then resultado = resultado & " e "
+    End If
+    
+    ' Processa dezenas e unidades
+    If numero > 0 Then
+        If numero < 20 Then
+            resultado = resultado & Unidades(numero)
+        Else
+            dezena = Int(numero / 10)
+            unidade = numero Mod 10
+            
+            If dezena >= LBound(Dezenas) And dezena <= UBound(Dezenas) Then
+                resultado = resultado & Dezenas(dezena)
+            Else
+                resultado = resultado & CStr(numero) ' Fallback
+            End If
+            
+            If unidade > 0 Then
+                resultado = resultado & " e " & Unidades(unidade)
+            End If
+        End If
+    End If
+    
+    ProcessarNumeroSimples = resultado
+End Function
+
+' Função auxiliar para processar números de 0 a 999
+Private Function ProcessarNumero(ByVal numero As Long, Unidades As Variant, Dezenas As Variant, Centenas As Variant) As String
+    Dim resultado As String
+    Dim centena As Integer, dezena As Integer, unidade As Integer
+    
+    If numero = 0 Then
+        ProcessarNumero = ""
+        Exit Function
+    End If
+    
+    ' Processa centenas
+    If numero >= 100 Then
+        centena = Int(numero / 100)
+        numero = numero Mod 100
+        
+        If centena = 1 And numero = 0 Then
+            resultado = "cem"  ' Caso especial: 100 = "cem"
+        Else
+            resultado = Centenas(centena)
+        End If
+        
+        If numero > 0 Then resultado = resultado & " e "
+    End If
+    
+    ' Processa dezenas e unidades
+    If numero > 0 Then
+        If numero < 20 Then
+            resultado = resultado & Unidades(numero)
+        Else
+            dezena = Int(numero / 10)
+            unidade = numero Mod 10
+            
+            If dezena >= LBound(Dezenas) And dezena <= UBound(Dezenas) Then
+                resultado = resultado & Dezenas(dezena)
+            Else
+                resultado = resultado & CStr(numero) ' Fallback
+            End If
+            
+            If unidade > 0 Then
+                resultado = resultado & " e " & Unidades(unidade)
+            End If
+        End If
+    End If
+    
+    ProcessarNumero = resultado
+End Function
+
+Public Function RemoverAcentos(ByVal texto As String) As String
+    Dim acentos As String
+    Dim semAcentos As String
+    Dim i As Integer
+    
+    acentos = "ÁÀÃÂÄÉÈÊËÍÌÎÏÓÒÕÔÖÚÙÛÜÇ"
+    semAcentos = "AAAAAEEEEIIIIOOOOOUUUUC"
+    
+    RemoverAcentos = texto
+    For i = 1 To Len(acentos)
+        RemoverAcentos = Replace(RemoverAcentos, Mid(acentos, i, 1), Mid(semAcentos, i, 1))
+    Next i
+End Function
+
+Public Sub LogAlteracao(celula As String, valor As String, Optional chamador As String = "Desconhecido")
+    With ThisWorkbook.Sheets("Log")
+        Dim ultimaLinha As Long
+        ultimaLinha = .Cells(.Rows.Count, "A").End(xlUp).Row + 1
+        .Cells(ultimaLinha, "A").Value = Now
+        .Cells(ultimaLinha, "B").Value = Environ("USERNAME")
+        .Cells(ultimaLinha, "C").Value = celula
+        .Cells(ultimaLinha, "D").Value = valor
+        .Cells(ultimaLinha, "E").Value = chamador
+    End With
+End Sub
+
+Public Sub GerarPDF()
+    Dim ultimaLinhaA As Long, ultimaLinhaH As Long, ultimaLinha As Long
+    Dim rngExport As Range
+    
+    Application.EnableEvents = False
+    
+    ThisWorkbook.Save
+    
+    ultimaLinhaA = ActiveSheet.Cells(ActiveSheet.Rows.Count, "A").End(xlUp).Row
+    ultimaLinhaH = ActiveSheet.Cells(ActiveSheet.Rows.Count, "H").End(xlUp).Row
+    
+    ultimaLinha = IIf(ultimaLinhaA > ultimaLinhaH, ultimaLinhaA, ultimaLinhaH)
+    
+    Set rngExport = ActiveSheet.Range("A1:J" & ultimaLinha)
+    
+    rngExport.ExportAsFixedFormat Type:=xlTypePDF, _
+                                  Filename:=ThisWorkbook.Path & "\" & ActiveSheet.Name & "_" & Format(Now, "yyyymmdd_hhmmss") & ".pdf", _
+                                  Quality:=xlQualityStandard, _
+                                  IncludeDocProperties:=True, _
+                                  IgnorePrintAreas:=False, _
+                                  OpenAfterPublish:=True
+                                  
+    Application.EnableEvents = True
+End Sub
+
+Public Sub LimparProposta()
+    Dim ultimaLinha As Long
+    Dim rngValorExtenso As Range
+    
+    Application.EnableEvents = False
+    
+    On Error Resume Next
+    Set rngValorExtenso = ActiveSheet.Range("ValorExtenso")
+    On Error GoTo 0
+    
+    If Not rngValorExtenso Is Nothing Then
+        ultimaLinha = rngValorExtenso.Row
+    Else
+        ultimaLinha = 102
+    End If
+    
+    If ultimaLinha >= 48 Then
+        ActiveSheet.Range("A48:J" & ultimaLinha).ClearContents
+    End If
+    
+    With ActiveSheet
+        Call FormatarTextoComPartes(.Range("NPREGAO"), "Pregão Eletrônico N° ", "Pregão Eletrônico N° ")
+        Call FormatarTextoComPartes(.Range("NPROCESSO"), "Processo Nº ", "Processo Nº ")
+        Call FormatarTextoComPartes(.Range("DATAABERTURA"), "Abertura: ", "Abertura: ")
+        Call FormatarTextoComPartes(.Range("ValidadeProposta"), "Validade da Proposta: ", "Validade da Proposta: ")
+        Call FormatarTextoComPartes(.Range("PrazoPagamento"), "Prazo de Pagamento: Conforme edital.", "Prazo de Pagamento: ")
+        Call FormatarTextoComPartes(.Range("VigenciaAta"), "Vigência da Ata: 12 (doze) meses", "Vigência da Ata: ")
+        Call FormatarTextoComPartes(.Range("PrazoEntrega"), "Prazo de Entrega: dias corridos do recebimento da Autorização de Fornecimento (AF) ou Nota de Empenho (NE).", "Prazo de Entrega: ", "corridos")
+        Call FormatarTextoComPartes(.Range("ValidadeMed"), "Validade do Objeto: ", "Validade do Objeto: ")
+        Call FormatarTextoComPartes(.Range("ValorExtenso"), "VALOR TOTAL DA PROPOSTA: ZERO REAIS", "VALOR TOTAL DA PROPOSTA: ")
+    End With
+    
+    Call CalcularSomaTotal
+    Call VerificarCamposObrigatorios
+    Application.EnableEvents = True
+End Sub
+
+Public Sub AdicionarLinhaAbaixoA48()
+    On Error GoTo TratarErro
+    Dim ultimaLinha As Long
+    Dim linhaLimite As Long
+    
+    Application.EnableEvents = False
+    
+    On Error Resume Next
+    linhaLimite = ActiveSheet.Range("LIMITELINHA").Row
+    If Err.Number <> 0 Then
+        MsgBox "Erro: LIMITELINHA não encontrado!", vbExclamation
+        Application.EnableEvents = True
+        Exit Sub
+    End If
+    On Error GoTo TratarErro
+    
+    ultimaLinha = 48
+    Do While Not IsEmpty(ActiveSheet.Cells(ultimaLinha, "A").Value) And ultimaLinha < linhaLimite - 1
+        ultimaLinha = ultimaLinha + 1
+    Loop
+    
+    If ultimaLinha < linhaLimite Then
+        ActiveSheet.Rows(ultimaLinha + 1).Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+        ActiveSheet.Rows(ultimaLinha).Copy
+        ActiveSheet.Rows(ultimaLinha + 1).PasteSpecial Paste:=xlPasteFormats
+        Application.CutCopyMode = False
+    Else
+        MsgBox "Não há espaço para adicionar mais linhas antes de LIMITELINHA!", vbInformation
+    End If
+    
+    Application.EnableEvents = True
+    Exit Sub
+
+TratarErro:
+    Application.EnableEvents = True
+    MsgBox "Erro ao adicionar linha: " & Err.Description, vbExclamation
+End Sub
+
+Public Sub RemoverUltimaLinhaAdicionada()
+    On Error GoTo TratarErro
+    Dim ultimaLinha As Long
+    Dim linhaLimite As Long
+    
+    Application.EnableEvents = False
+    
+    On Error Resume Next
+    linhaLimite = ActiveSheet.Range("LIMITELINHA").Row
+    If Err.Number <> 0 Then
+        MsgBox "Erro: LIMITELINHA não encontrado!", vbExclamation
+        Application.EnableEvents = True
+        Exit Sub
+    End If
+    On Error GoTo TratarErro
+    
+    ultimaLinha = linhaLimite - 1
+    
+    If ultimaLinha > 48 Then
+        ActiveSheet.Rows(ultimaLinha).Delete Shift:=xlUp
+        Call RecalcularBloco
+        Call CalcularSomaTotal
+    Else
+        MsgBox "Não há mais linhas adicionadas para remover após A48!", vbInformation
+    End If
+    
+    Application.EnableEvents = True
+    Exit Sub
+
+TratarErro:
+    Application.EnableEvents = True
+    MsgBox "Erro ao remover linha: " & Err.Description, vbExclamation
+End Sub
+
+Public Sub LimparParcial()
+    On Error GoTo TratarErro
+    Dim ultimaLinha As Long
+    Dim linhaLimite As Long
+    
+    Application.EnableEvents = False
+    
+    On Error Resume Next
+    linhaLimite = ActiveSheet.Range("LIMITELINHA").Row
+    If Err.Number <> 0 Then
+        MsgBox "Erro: LIMITELINHA não encontrado!", vbExclamation
+        Application.EnableEvents = True
+        Exit Sub
+    End If
+    On Error GoTo TratarErro
+    
+    ultimaLinha = linhaLimite - 1
+    
+    If ultimaLinha >= 48 Then
+        ActiveSheet.Range("A48:J" & ultimaLinha).ClearContents
+    End If
+    
+    With ActiveSheet
+        Call FormatarTextoComPartes(.Range("NPREGAO"), "Pregão Eletrônico N° ", "Pregão Eletrônico N° ")
+        Call FormatarTextoComPartes(.Range("NPROCESSO"), "Processo Nº ", "Processo Nº ")
+        Call FormatarTextoComPartes(.Range("DATAABERTURA"), "Abertura: ", "Abertura: ")
+        Call FormatarTextoComPartes(.Range("ValorExtenso"), "VALOR TOTAL DA PROPOSTA: ZERO REAIS", "VALOR TOTAL DA PROPOSTA: ")
+    End With
+    
+    Call CalcularSomaTotal
+    Call VerificarCamposObrigatorios
+    
+    Application.EnableEvents = True
+    Exit Sub
+
+TratarErro:
+    Application.EnableEvents = True
+    MsgBox "Erro ao limpar parcialmente: " & Err.Description, vbExclamation
+End Sub
+
+Public Function GetNomeEstado(entrada As String) As String
+    ' Converte a entrada pra maiúsculas e remove espaços extras
+    entrada = UCase(Trim(entrada))
+    Dim entradaSemAcentos As String
+    entradaSemAcentos = RemoverAcentos(entrada)
+    
+    ' Dicionário de estados: Sigla -> Nome Completo
+    Dim estados(0 To 26, 0 To 1) As String
+    ' Inicializa o array manualmente, sem tantas continuações de linha
+    estados(0, 0) = "AC": estados(0, 1) = "ACRE"
+    estados(1, 0) = "AL": estados(1, 1) = "ALAGOAS"
+    estados(2, 0) = "AP": estados(2, 1) = "AMAPÁ"
+    estados(3, 0) = "AM": estados(3, 1) = "AMAZONAS"
+    estados(4, 0) = "BA": estados(4, 1) = "BAHIA"
+    estados(5, 0) = "CE": estados(5, 1) = "CEARÁ"
+    estados(6, 0) = "DF": estados(6, 1) = "DISTRITO FEDERAL"
+    estados(7, 0) = "ES": estados(7, 1) = "ESPÍRITO SANTO"
+    estados(8, 0) = "GO": estados(8, 1) = "GOIÁS"
+    estados(9, 0) = "MA": estados(9, 1) = "MARANHÃO"
+    estados(10, 0) = "MT": estados(10, 1) = "MATO GROSSO"
+    estados(11, 0) = "MS": estados(11, 1) = "MATO GROSSO DO SUL"
+    estados(12, 0) = "MG": estados(12, 1) = "MINAS GERAIS"
+    estados(13, 0) = "PA": estados(13, 1) = "PARÁ"
+    estados(14, 0) = "PB": estados(14, 1) = "PARAÍBA"
+    estados(15, 0) = "PR": estados(15, 1) = "PARANÁ"
+    estados(16, 0) = "PE": estados(16, 1) = "PERNAMBUCO"
+    estados(17, 0) = "PI": estados(17, 1) = "PIAUÍ"
+    estados(18, 0) = "RJ": estados(18, 1) = "RIO DE JANEIRO"
+    estados(19, 0) = "RN": estados(19, 1) = "RIO GRANDE DO NORTE"
+    estados(20, 0) = "RS": estados(20, 1) = "RIO GRANDE DO SUL"
+    estados(21, 0) = "RO": estados(21, 1) = "RONDÔNIA"
+    estados(22, 0) = "RR": estados(22, 1) = "RORAIMA"
+    estados(23, 0) = "SC": estados(23, 1) = "SANTA CATARINA"
+    estados(24, 0) = "SP": estados(24, 1) = "SÃO PAULO"
+    estados(25, 0) = "SE": estados(25, 1) = "SERGIPE"
+    estados(26, 0) = "TO": estados(26, 1) = "TOCANTINS"
+    
+    Dim i As Integer
+    Dim encontrado As Boolean
+    encontrado = False
+    
+    ' Primeiro, verifica se a entrada é uma sigla
+    For i = 0 To 26
+        If entrada = estados(i, 0) Then
+            GetNomeEstado = estados(i, 1) & " (" & estados(i, 0) & ")"
+            encontrado = True
+            Exit For
+        End If
+    Next i
+    
+    ' Se não encontrou como sigla, verifica se é o nome completo (ignorando acentos)
+    If Not encontrado Then
+        For i = 0 To 26
+            Dim nomeSemAcentos As String
+            nomeSemAcentos = RemoverAcentos(estados(i, 1))
+            If entradaSemAcentos = nomeSemAcentos Then
+                GetNomeEstado = estados(i, 1) & " (" & estados(i, 0) & ")"
+                encontrado = True
+                Exit For
+            End If
+        Next i
+    End If
+    
+    ' Se não encontrou nem como sigla nem como nome, retorna mensagem de erro
+    If Not encontrado Then
+        GetNomeEstado = "ESTADO NÃO ENCONTRADO"
+    End If
+End Function
+
+Public Sub BuscarInformacoesApresentacoes(ByVal Target As Range)
+    On Error GoTo ErrorHandler
+
+    ' Verifica se a célula editada é da coluna I (Código Euro)
+    If Target.Column <> 9 Then Exit Sub ' Coluna I é a coluna 9
+
+    Dim wsCadastro As Worksheet
+    Dim wsApresentacoes As Worksheet
+    Dim codigoEuro As String
+    Dim linha As Long
+    Dim ultimaLinha As Long
+    Dim linhaEncontrada As Long
+    Dim encontrou As Boolean
+
+    ' Define as abas
+    Set wsCadastro = ThisWorkbook.Sheets("CADASTROWEB")
+    Set wsApresentacoes = ThisWorkbook.Sheets("APRESENTACOES")
+
+    ' Pega o Código Euro digitado e converte pra texto
+    linha = Target.Row
+    If IsEmpty(Target.Value) Or IsNull(Target.Value) Then
+        codigoEuro = ""
+    Else
+        codigoEuro = Trim(CStr(Target.Value))
+    End If
+
+    ' Se o Código Euro estiver vazio, limpa a linha inteira de A a J
+    If codigoEuro = "" Then
+        wsCadastro.Range("A" & linha & ":J" & linha).ClearContents
+        Exit Sub
+    End If
+
+    ' Encontra a última linha preenchida na coluna E da aba APRESENTACOES
+    ultimaLinha = wsApresentacoes.Cells(wsApresentacoes.Rows.Count, "E").End(xlUp).Row
+
+    ' Procura o Código Euro na aba APRESENTACOES (coluna E)
+    encontrou = False
+    For linhaEncontrada = 2 To ultimaLinha ' Assume que a linha 1 é cabeçalho
+        If Trim(CStr(wsApresentacoes.Cells(linhaEncontrada, "E").Value)) = codigoEuro Then
+            encontrou = True
+            Exit For
+        End If
+    Next linhaEncontrada
+
+    ' Se encontrou o Código Euro, copia as informações
+    If encontrou Then
+        Dim descricaoCompleta As String
+        descricaoCompleta = wsApresentacoes.Cells(linhaEncontrada, "B").Value
+
+        wsCadastro.Cells(linha, "B").Value = descricaoCompleta ' Descrição
+        wsCadastro.Cells(linha, "C").Value = wsApresentacoes.Cells(linhaEncontrada, "C").Value ' Unidade
+        wsCadastro.Cells(linha, "E").Value = wsApresentacoes.Cells(linhaEncontrada, "A").Value ' Fabricante
+
+        ' Extrair a marca do texto da descrição
+        Dim marcaExtraida As String
+        Dim posMarca As Long
+        Dim posProximaBarra As Long
+
+        posMarca = InStr(1, descricaoCompleta, "MARCA:", vbTextCompare) ' Ignora maiúsculas/minúsculas
+        If posMarca > 0 Then
+            posProximaBarra = InStr(posMarca + 1, descricaoCompleta, "/")
+            If posProximaBarra > posMarca Then
+                marcaExtraida = Trim(Mid(descricaoCompleta, posMarca + 6, posProximaBarra - posMarca - 6))
+            Else
+                ' Se não houver barra depois, pega até o final da string
+                marcaExtraida = Trim(Mid(descricaoCompleta, posMarca + 6))
+            End If
+            wsCadastro.Cells(linha, "F").Value = marcaExtraida ' Preenche a marca, mesmo que seja "GENÉRICO"
+        Else
+            wsCadastro.Cells(linha, "F").Value = "" ' Marca não encontrada, será preenchida pelo AutocompletarMarca
+        End If
+    Else
+        ' Se não encontrou o Código Euro, limpa as colunas e avisa
+        wsCadastro.Range("A" & linha & ":J" & linha).ClearContents
+        MsgBox "Código Euro " & codigoEuro & " não encontrado na aba APRESENTACOES.", vbExclamation
+    End If
+
+ExitSub:
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Ocorreu um erro ao buscar informações: " & Err.Description, vbCritical
+    Resume ExitSub
+End Sub
+
+Public Sub CalcularValorTotal(ByVal linha As Long)
+    On Error GoTo ErrorHandler
+    
+    Dim ws As Worksheet
+    Dim quantidade As Double
+    Dim valorUnitario As Double
+    Dim valorTotal As Double
+    
+    Set ws = ThisWorkbook.Sheets("CADASTROWEB")
+    
+    ' Pega os valores de Quantidade (D) e Valor Unitário (G)
+    quantidade = 0
+    valorUnitario = 0
+    If IsNumeric(ws.Cells(linha, "D").Value) Then
+        quantidade = CDbl(ws.Cells(linha, "D").Value)
+    End If
+    If IsNumeric(ws.Cells(linha, "G").Value) Then
+        valorUnitario = CDbl(ws.Cells(linha, "G").Value)
+    End If
+    
+    ' Calcula o Valor Total (H) = D * G
+    valorTotal = quantidade * valorUnitario
+    
+    ' Escreve o resultado na coluna H
+    ws.Cells(linha, "H").Value = valorTotal
+    ws.Cells(linha, "H").NumberFormat = "[$R$] #,##0.00"
+    
+ExitSub:
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Ocorreu um erro ao calcular o Valor Total: " & Err.Description, vbCritical
+End Sub
+
+Public Sub AutocompletarMarca(ByVal Target As Range)
+    On Error GoTo ErrorHandler
+    
+    Dim ws As Worksheet
+    Dim linha As Long
+    Dim ultimaLinha As Long
+    Dim marca As String
+    
+    Set ws = ThisWorkbook.Sheets("CADASTROWEB")
+    linha = Target.Row
+    
+    ' Se a célula editada é da coluna F (Marca), autocompleta as células abaixo
+    If Target.Column = 6 Then
+        marca = Trim(Target.Value)
+        
+        ' Encontra a última linha preenchida na coluna A (Item)
+        ultimaLinha = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+        
+        ' Autocompleta as células abaixo com a mesma marca, até a última linha preenchida
+        If linha < ultimaLinha Then
+            Dim i As Long
+            For i = linha + 1 To ultimaLinha
+                If Trim(ws.Cells(i, "F").Value) = "" Then ' Só preenche se a célula estiver vazia
+                    ws.Cells(i, "F").Value = marca
+                Else
+                    Exit For ' Para se encontrar uma célula já preenchida
+                End If
+            Next i
+        End If
+    Else
+        ' Se não for a coluna F (ex.: chamado após edição na coluna I), preenche com base na célula acima
+        If linha > 2 Then
+            Dim marcaAcima As String
+            marcaAcima = Trim(ws.Cells(linha - 1, "F").Value)
+            ' Só preenche a célula atual se ela estiver vazia e a marca acima for válida
+            If Trim(ws.Cells(linha, "F").Value) = "" And marcaAcima <> "" Then
+                ws.Cells(linha, "F").Value = marcaAcima
+            End If
+        End If
+    End If
+    
+ExitSub:
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Ocorreu um erro ao autocompletar a Marca: " & Err.Description, vbCritical
+End Sub
+
+Public Sub FormatEstadoUF(ByVal Target As Range)
+    On Error GoTo ErrorHandler
+    
+    Dim valor As String
+    valor = Trim(Target.Value)
+    
+    If valor = "" Then Exit Sub
+    
+    ' Usar a função GetNomeEstado pra formatar o estado no padrão "NOME (SIGLA)"
+    Target.Value = GetNomeEstado(valor)
+    
+    ' Registrar a alteração no log
+    Call LogAlteracao(Target.Address, Target.Value, "FormatEstadoUF")
+    
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Erro ao formatar ESTADOUF: " & Err.Description, vbCritical
+End Sub
+
+Public Sub FormatNomeOrgao(ByVal Target As Range)
+    On Error GoTo ErrorHandler
+    
+    Dim valor As String
+    valor = Trim(Target.Value)
+    
+    If valor = "" Then Exit Sub
+    
+    ' Transformar em maiúsculas e aplicar negrito
+    Target.Value = UCase(valor)
+    Target.Font.Bold = True
+    
+    ' Registrar a alteração no log
+    Call LogAlteracao(Target.Address, Target.Value, "FormatNomeOrgao")
+    
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Erro ao formatar NOMEORGAO: " & Err.Description, vbCritical
+End Sub
+Public Sub FormatDataHoje(ByVal Target As Range, ByVal ws As Worksheet)
+    On Error GoTo ErrorHandler
+    
+    Dim prefixo As String
+    Dim DataFormatada As String
+    Dim DataHojeRange As Range
+    
+    ' Define o prefixo
+    prefixo = "Vila Velha - ES"
+    
+    ' Obtém a célula nomeada "DataHoje" no escopo da planilha
+    On Error Resume Next
+    Set DataHojeRange = ws.Names("DataHoje").RefersToRange
+    On Error GoTo 0
+    
+    ' Verifica se a célula alterada é a "DataHoje" e contém "H" (maiúsculo ou minúsculo)
+    If Not DataHojeRange Is Nothing Then
+        If Not Intersect(Target, DataHojeRange) Is Nothing Then
+            If UCase(Trim(Target.Value)) = "H" Then
+                ' Formata a data atual no formato desejado com ponto final
+                DataFormatada = prefixo & ", " & Format(Date, "dd \de mmmm \de yyyy") & "."
+                Target.Value = DataFormatada
+                Call LogAlteracao(Target.Address, Target.Value, "FormatDataHoje")
+            End If
+        End If
+    End If
+    
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Erro ao atualizar DataHoje: " & Err.Description, vbCritical
+End Sub
+
+Function IdentificarConvenio(ByVal texto As String) As String
+    Dim posConfa87 As Long, posConv162 As Long, posCap As Long
+    Dim posConfa872 As Long, posConv1622 As Long
+    
+    texto = UCase(Trim(texto))
+    posConfa87 = InStr(1, texto, "(CONFAZ 87/02: SIM)")
+    posConv162 = InStr(1, texto, "(CONV. 162/94: SIM)")
+    posConfa872 = InStr(1, texto, "(CONFAZ 87/02: SIM | ")
+    posConv1622 = InStr(1, texto, "(CONV. 162/94: SIM | ")
+    posCap = InStr(1, texto, "(CAP: SIM)")
+    
+    If posConfa87 > 0 Or posConfa872 > 0 Then
+        IdentificarConvenio = "CONFAZ_87_02" ' Detecta CONFAZ 87/02 com ou sem |
+    ElseIf posConv162 > 0 Or posConv1622 > 0 Then
+        IdentificarConvenio = "CONV_162_94" ' Detecta CONV. 162/94 com ou sem |
+    ElseIf posCap > 0 Then
+        IdentificarConvenio = "CAP"
+    Else
+        IdentificarConvenio = "SEM_CONVENIO"
+    End If
+End Function
+
+Function CalcularFatorICMS(ByVal uf As String, ByVal marca As String) As Double
+    Dim ufCode As String
+    uf = UCase(Trim(uf)) ' Garante UF em maiúscula e sem espaços
+    marca = UCase(Trim(marca)) ' Garante marca em maiúscula e sem espaços
+    
+    ' Extrai o código da UF (os dois primeiros caracteres ou até o parêntese)
+    If InStr(uf, "(") > 0 Then
+        ufCode = UCase(Trim(Left(uf, InStr(uf, "(") - 1)))
+        If Len(ufCode) <> 2 Then ufCode = UCase(Trim(Mid(uf, InStr(uf, "(") + 1, 2)))
+    Else
+        ufCode = Left(uf, 2)
+    End If
+    
+    Select Case ufCode
+        Case "AC": CalcularFatorICMS = 0.81
+        Case "AL": CalcularFatorICMS = 0.81
+        Case "AM": CalcularFatorICMS = 0.8
+        Case "AP": CalcularFatorICMS = 0.82
+        Case "BA": CalcularFatorICMS = 0.795
+        Case "CE": CalcularFatorICMS = 0.8
+        Case "DF": CalcularFatorICMS = 0.83
+        Case "ES": CalcularFatorICMS = 0.83
+        Case "GO": CalcularFatorICMS = 0.81
+        Case "MA": CalcularFatorICMS = 0.77
+        Case "MG"
+            If marca = "GENÉRICO" Or marca = "GENERICO" Then CalcularFatorICMS = 0.88 Else CalcularFatorICMS = 0.82
+        Case "MS": CalcularFatorICMS = 0.83
+        Case "MT": CalcularFatorICMS = 0.83
+        Case "PA": CalcularFatorICMS = 0.81
+        Case "PB": CalcularFatorICMS = 0.8
+        Case "PE": CalcularFatorICMS = 0.795
+        Case "PI": CalcularFatorICMS = 0.775
+        Case "PR": CalcularFatorICMS = 0.805
+        Case "RJ": CalcularFatorICMS = 0.78
+        Case "RN": CalcularFatorICMS = 0.8
+        Case "RO": CalcularFatorICMS = 0.805
+        Case "RR": CalcularFatorICMS = 0.8
+        Case "RS": CalcularFatorICMS = 0.83
+        Case "SC": CalcularFatorICMS = 0.83
+        Case "SE": CalcularFatorICMS = 0.81
+        Case "SP"
+            If marca = "GENÉRICO" Or marca = "GENERICO" Then CalcularFatorICMS = 0.88 Else CalcularFatorICMS = 0.82
+        Case "TO": CalcularFatorICMS = 0.8
+        Case Else: CalcularFatorICMS = 0.82 ' Padrão se UF inválida
+    End Select
+End Function
